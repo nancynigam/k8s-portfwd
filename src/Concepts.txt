@@ -1,0 +1,49 @@
+Why use SPDY protocol?
+In Kubernetes, port forwarding is a mechanism that allows you to access a specific port on a pod from your local machine. To establish a secure and efficient connection for port forwarding, Kubernetes uses the SPDY protocol. This is why the Go client code involves upgrading to SPDY using the spdy.NewDialer method. 
+
+SPDY is an open networking protocol developed primarily at Google for transporting web content. It is designed to reduce web page load latency and improve web security. Although HTTP/2 has largely replaced SPDY, Kubernetes still uses it for some of its internal operations, including port forwarding.
+
+Why Use SPDY for Port Forwarding?
+Multiplexing: SPDY allows multiple concurrent streams over a single TCP connection. This is useful for port forwarding because it enables efficient, simultaneous bidirectional communication between the client and the pod.
+Compression: SPDY supports header compression, which reduces the amount of data transmitted, making the connection more efficient.
+Prioritization: SPDY allows for the prioritization of requests, ensuring that more important traffic can be given higher priority over less important traffic.
+Security: SPDY operates over TLS, providing secure communication channels. This is crucial for maintaining the integrity and confidentiality of data being forwarded.
+
+How the Upgrade Works in the Go Client
+The Go client for Kubernetes uses SPDY for port forwarding to ensure a reliable and secure connection. Here’s a breakdown of the relevant code:
+
+```
+transport, upgrader, err := spdy.RoundTripperFor(req.RestConfig)
+if err != nil {
+    return err
+}
+
+dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, http.MethodPost, &url.URL{Scheme: "https", Path: path, Host: hostIP})
+fw, err := portforward.New(dialer, []string{fmt.Sprintf("%d:%d", req.LocalPort, req.PodPort)}, req.StopCh, req.ReadyCh, req.Streams.Out, req.Streams.ErrOut)
+if err != nil {
+    return err
+}
+return fw.ForwardPorts()
+```
+
+In the context of Kubernetes port forwarding:
+
+HTTP/HTTPS: Kubernetes API communication typically happens over HTTP or HTTPS, which itself runs over TCP.
+SPDY Upgrade: For port forwarding, the connection is upgraded to SPDY to allow for efficient, multiplexed communication. This ensures multiple data streams (e.g., port forwarding commands and responses) can flow concurrently over the same TCP connection.
+
+TCP/IP: The foundational transport layer protocol for internet communication.
+SPDY: A protocol that operates on top of TCP/IP and is designed to improve HTTP performance by enhancing the way data is sent over the network.
+It's important to note that many of SPDY's features were integrated into HTTP/2, which has since become the standard for improving web performance.
+
+The readyCh channel in the code is used to synchronize the start of the port forwarding process with other parts of your program. 
+Inside the goroutine, the port forwarding operation is initiated by calling the PortForwardAPod function.
+Once the port forwarding operation is initiated, the goroutine waits for a signal indicating that the operation is ready to proceed further.
+
+The PortForwardAPod function, upon successfully setting up the port forwarding, signals readiness by sending a value (e.g., true) over the readyCh channel.
+
+Imagine you have multiple concurrent tasks or goroutines in your program, some of which depend on the successful setup of port forwarding. By using the readyCh, you ensure that these dependent tasks only start after the port forwarding operation is ready.
+
+The () at the end of a func declaration in Go signifies an anonymous function
+(also known as a lambda or closure) that is immediately invoked.
+This pattern is called an Immediately Invoked Function Expression (IIFE).
+It allows you to declare a function and execute it right away.

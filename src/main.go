@@ -2,15 +2,18 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 
+	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
@@ -19,6 +22,30 @@ import (
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
 )
+
+// Define the structure based on the YAML format
+type Config struct {
+	// This is public field as it starts with an uppercase
+	// yaml:"version": This is a struct tag. Struct tags are a way to attach
+	// meta-information to struct fields. The yaml:"version" tag indicates that this
+	// field should be associated with the key version when the struct is serialized to
+	// or deserialized from YAML.
+	Version string `yaml:"version"`
+	Config  struct {
+		RetryDelaySec float64 `yaml:"retry_delay_sec"`
+	} `yaml:"config"`
+	Targets []Target `yaml:"targets"`
+}
+
+type Target struct {
+	Name        string   `yaml:"name,omitempty"`
+	Tags        []string `yaml:"tags,omitempty"`
+	Target      string   `yaml:"target"`
+	Type        string   `yaml:"type"`
+	Namespace   string   `yaml:"namespace"`
+	ListenAddrs []string `yaml:"listen_addrs,omitempty"`
+	Ports       []string `yaml:"ports"`
+}
 
 type PortForwardAPodRequest struct {
 
@@ -66,6 +93,40 @@ func main() {
 		fmt.Printf("error getting Kubernetes config: %v\n", err)
 		os.Exit(1)
 	}
+
+	var yamlConfig Config = parseYamlFile()
+
+	// Currently there is only 1 config
+	// TODO : Bring the entire logic inside this loop
+	// TODO : Should I have go at this for loop level or should I still have separate go funcs
+	// for _, target := range yamlConfig.Targets {
+	// podname := target.Name
+	// namespace := target.Namespace
+	// ports := target.Ports
+	// }
+
+	targets := yamlConfig.Targets
+	configTarget := targets[0]
+	podname := configTarget.Target
+	namespace := configTarget.Namespace
+	portsFromConfig := configTarget.Ports
+
+	ports := strings.Split(portsFromConfig[0], ":")
+
+	localTargetPort, err := strconv.Atoi(ports[0])
+	if err != nil {
+		panic(err)
+	}
+
+	podPort, err := strconv.Atoi(ports[1])
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Target podname: %s\n", podname)
+	fmt.Printf("Target namespace: %s\n", namespace)
+	fmt.Printf("Target localTargetPort: %d\n", localTargetPort)
+	fmt.Printf("Target podPort: %d\n", podPort)
 
 	// stopCh control the port forwarding lifecycle.
 	// When it gets closed the port forward will terminate
@@ -127,12 +188,14 @@ func main() {
 			RestConfig: kubeConfig,
 			Pod: v1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "hello-minikube-5c898d8489-7mzk5",
-					Namespace: "default",
+					// Name:      "hello-minikube-5c898d8489-7mzk5",
+					// Namespace: "default",
+					Name:      podname,
+					Namespace: namespace,
 				},
 			},
-			LocalPort: 7070,
-			PodPort:   8080,
+			LocalPort: localTargetPort,
+			PodPort:   podPort,
 			Streams:   stream,
 			StopCh:    stopCh,
 			ReadyCh:   readyCh,
@@ -142,13 +205,20 @@ func main() {
 			panic(err)
 		}
 	}()
-
+	//Once the port forwarding operation is initiated, the goroutine waits for a
+	// signal indicating that the operation is ready to proceed further.
+	// The PortForwardAPod function, upon successfully setting up the port forwarding,
+	// signals readiness by sending a value (e.g., true) over the readyCh channel.
 	select {
 	case <-readyCh:
+		//fmt.Printf("val in readyCh : %v\n", val)
 		break
 	}
 	println("port is ready to get traffic")
 
+	// The wg.Wait() is used to ensure that all goroutines managed by the sync.WaitGroup
+	// have completed their execution before the main goroutine exits.
+	// Puttinh it at the end of main.
 	wg.Wait()
 }
 
@@ -162,6 +232,10 @@ func PortForwardAPod(req PortForwardAPodRequest) error {
 	fmt.Println(" Path : " + path)
 	fmt.Println()
 
+	// Minikube creates a local Kubernetes cluster by setting up a VM or container
+	// and installing the necessary Kubernetes components. It configures the Kubernetes API server
+	//to be accessible via localhost using port forwarding. This setup allows you to interact with your local
+	// cluster as if it were running directly on your machine, providing a convenient environment for development and testing.
 	hostIP := strings.TrimLeft(req.RestConfig.Host, "https:/")
 	fmt.Println(" hostIP : " + hostIP)
 	fmt.Println()
@@ -184,4 +258,29 @@ func PortForwardAPod(req PortForwardAPodRequest) error {
 	// ForwardPorts formats and executes a port forwarding request. The connection will remain
 	// open until stopChan is closed.
 	return fw.ForwardPorts()
+}
+
+func parseYamlFile() Config {
+
+	data, err := os.ReadFile("../k8sfwd-example.yaml")
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	}
+
+	// Parse the YAML file into the Config struct
+	var config Config
+	// The yaml.Unmarshal function is used to parse the YAML data and populate the fields of the struct.
+	// The Unmarshal function takes two arguments:
+	// The byte slice containing the YAML data (data).
+	// A pointer to the struct where the parsed data should be stored (&config).
+	// The Unmarshal function signature looks like this:
+	// When you call yaml.Unmarshal(data, &config), the function parses the YAML data in
+	// data and fills the config struct with the corresponding values from the YAML.
+	err = yaml.Unmarshal(data, &config)
+
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	}
+
+	return config
 }
