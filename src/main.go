@@ -94,50 +94,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	var yamlConfig Config = parseYamlFile()
-
-	// Currently there is only 1 config
-	// TODO : Bring the entire logic inside this loop
-	// TODO : Should I have go at this for loop level or should I still have separate go funcs
-	// for _, target := range yamlConfig.Targets {
-	// podname := target.Name
-	// namespace := target.Namespace
-	// ports := target.Ports
-	// }
-
-	targets := yamlConfig.Targets
-	configTarget := targets[0]
-	podname := configTarget.Target
-	namespace := configTarget.Namespace
-	portsFromConfig := configTarget.Ports
-
-	ports := strings.Split(portsFromConfig[0], ":")
-
-	localTargetPort, err := strconv.Atoi(ports[0])
-	if err != nil {
-		panic(err)
-	}
-
-	podPort, err := strconv.Atoi(ports[1])
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Printf("Target podname: %s\n", podname)
-	fmt.Printf("Target namespace: %s\n", namespace)
-	fmt.Printf("Target localTargetPort: %d\n", localTargetPort)
-	fmt.Printf("Target podPort: %d\n", podPort)
-
 	// stopCh control the port forwarding lifecycle.
 	// When it gets closed the port forward will terminate
 	// This is used to stop the main function from terminating
 	// Till value is received in this channel
 	stopCh := make(chan struct{}, 1)
 	fmt.Printf(" Created stop Channel %v\n", stopCh)
-
-	// readyCh communicate when the port forward is ready to get traffic
-	readyCh := make(chan struct{})
-	fmt.Printf(" Created ready Channel %v\n", readyCh)
 
 	// stream is used to tell the port forwarder where to place its output or
 	// where to expect input if needed. For the port forwarding we just need
@@ -181,41 +143,84 @@ func main() {
 
 	}() // instantly call the func, don't have to wait for func call
 
-	go func() {
-		fmt.Printf(" Entered PortForwarder goroutine\n")
-		// PortForward the pod specified from its port 8080 to the local port 7070
-		err := PortForwardAPod(PortForwardAPodRequest{
-			RestConfig: kubeConfig,
-			Pod: v1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					// Name:      "hello-minikube-5c898d8489-7mzk5",
-					// Namespace: "default",
-					Name:      podname,
-					Namespace: namespace,
-				},
-			},
-			LocalPort: localTargetPort,
-			PodPort:   podPort,
-			Streams:   stream,
-			StopCh:    stopCh,
-			ReadyCh:   readyCh,
-		})
+	var yamlConfig Config = parseYamlFile()
 
+	// Currently there is only 1 config
+	// TODO : Bring the entire logic inside this loop
+	// TODO : Should I have go at this for loop level or should I still have separate go funcs
+	// for _, target := range yamlConfig.Targets {
+	// podname := target.Name
+	// namespace := target.Namespace
+	// ports := target.Ports
+	// }
+
+	targets := yamlConfig.Targets
+
+	for _, target := range targets {
+
+		// readyCh communicate when the port forward is ready to get traffic
+		readyCh := make(chan struct{})
+		fmt.Printf(" Created ready Channel %v\n", readyCh)
+		configTarget := target
+		podname := configTarget.Target
+		namespace := configTarget.Namespace
+		portsFromConfig := configTarget.Ports
+
+		ports := strings.Split(portsFromConfig[0], ":")
+		localTargetPort, err := strconv.Atoi(ports[0])
+
+		// TODO : Add error handling for both
 		if err != nil {
 			panic(err)
 		}
-	}()
-	//Once the port forwarding operation is initiated, the goroutine waits for a
-	// signal indicating that the operation is ready to proceed further.
-	// The PortForwardAPod function, upon successfully setting up the port forwarding,
-	// signals readiness by sending a value (e.g., true) over the readyCh channel.
-	select {
-	case <-readyCh:
-		//fmt.Printf("val in readyCh : %v\n", val)
-		break
-	}
-	println("port is ready to get traffic")
 
+		podPort, err := strconv.Atoi(ports[1])
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Printf("Target podname: %s\n", podname)
+		fmt.Printf("Target namespace: %s\n", namespace)
+		fmt.Printf("Target localTargetPort: %d\n", localTargetPort)
+		fmt.Printf("Target podPort: %d\n", podPort)
+
+		go func() {
+			fmt.Printf(" Entered PortForwarder goroutine\n")
+			// PortForward the pod specified from its port 8080 to the local port 7070
+			err := PortForwardAPod(PortForwardAPodRequest{
+				RestConfig: kubeConfig,
+				Pod: v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						// Name:      "hello-minikube-5c898d8489-7mzk5",
+						// Namespace: "default",
+						Name:      podname,
+						Namespace: namespace,
+					},
+				},
+				LocalPort: localTargetPort,
+				PodPort:   podPort,
+				Streams:   stream,
+				StopCh:    stopCh,
+				ReadyCh:   readyCh,
+			})
+
+			if err != nil {
+				panic(err)
+			}
+		}()
+
+		// Once the port forwarding operation is initiated, the goroutine waits for a
+		// signal indicating that the operation is ready to proceed further.
+		// The PortForwardAPod function, upon successfully setting up the port forwarding,
+		// signals readiness by sending a value (e.g., true) over the readyCh channel.
+		select {
+		case <-readyCh:
+			//fmt.Printf("val in readyCh : %v\n", val)
+			break
+		}
+		println("port is ready to get traffic")
+
+	}
 	// The wg.Wait() is used to ensure that all goroutines managed by the sync.WaitGroup
 	// have completed their execution before the main goroutine exits.
 	// Puttinh it at the end of main.

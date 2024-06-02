@@ -7,24 +7,22 @@ targets:
   - name: Hello MiniKube                # Optional, for display purposes.
     tags:                               # Optional, allows to selectively forward using `--tags <tag1> <tag2>`
       - integration
-    target: hello-minikube-5c898d8489-7mzk5    # The name of the resource to forward to.
+    target: hello-minikube-5c898d8489-f6ldk    # The name of the resource to forward to.
     type: pod                           # The type of resource, either "service", "deployment" or "pod".
     namespace: default                      # The namespace of the resource; defaults to "default".
     listen_addrs:                       # Optional, the listen addresses to use; defaults to "localhost".
       - "127.0.0.1"
     ports:                              # The source ports to forward.
-      - "7070:8080"                       # Forward resource port 80 to local port 5012.
+      - "7080:8080"                       # Forward resource port 80 to local port 5012.
       # - "8080"                          # Forward resource port 8080 to random local port.
-  # - name: Fool API (Production)
-  #   target: foo
-  #   tags:
-  #     - production
-  #     - google-cloud
-  #   type: service
-  #   namespace: bar
-  #   context: production                 # Optional; will default to current context.
-  #   cluster: null                       # Optional; will default to the context's default cluster.
-  #   listen_addrs:
-  #     - "127.1.0.1"
-  #   ports:
-  #     - "5012:80"
+  - name: Hola MiniKube                # Optional, for display purposes.
+    tags:                               # Optional, allows to selectively forward using `--tags <tag1> <tag2>`
+      - integration
+    target: hola-minikube-7f8555958c-x9tjs    # The name of the resource to forward to.
+    type: pod                           # The type of resource, either "service", "deployment" or "pod".
+    namespace: default                      # The namespace of the resource; defaults to "default".
+    listen_addrs:                       # Optional, the listen addresses to use; defaults to "localhost".
+      - "127.0.0.1"
+    ports:                              # The source ports to forward.
+      - "6080:8080"                       # Forward resource port 80 to local port 5012.
+    
