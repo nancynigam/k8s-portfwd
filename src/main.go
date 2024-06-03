@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -72,11 +71,20 @@ type PortForwardAPodRequest struct {
 }
 
 func main() {
+
+	// Defer a function call to handle panics
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Recovered from panic:", r)
+			// Optionally, perform cleanup or log the panic
+		}
+	}()
+
 	// synchronization primitive used to wait for a collection of goroutines to finish
 	// executing. This is to ensure all parts of a concurrent program have completed
 	// before exiting.
 	var wg sync.WaitGroup
-	wg.Add(1)
+
 	userHomeDir, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Printf("error getting user home dir: %v\n", err)
@@ -99,7 +107,7 @@ func main() {
 	// This is used to stop the main function from terminating
 	// Till value is received in this channel
 	stopCh := make(chan struct{}, 1)
-	fmt.Printf(" Created stop Channel %v\n", stopCh)
+	//fmt.Printf(" Created stop Channel %v\n", stopCh)
 
 	// stream is used to tell the port forwarder where to place its output or
 	// where to expect input if needed. For the port forwarding we just need
@@ -109,13 +117,13 @@ func main() {
 		Out:    os.Stdout,
 		ErrOut: os.Stderr,
 	}
-	fmt.Printf(" Created stream %v\n", stream)
+	//fmt.Printf(" Created stream %v\n", stream)
 
 	// manage termination signal from the terminal. As you can see the stopCh gets closed
 	// to gracefully handle its termination.
 	// Sigs channel is created to receive OS signals.
 	sigs := make(chan os.Signal, 1)
-	fmt.Printf(" Created sig var %v\n", sigs)
+	//fmt.Printf(" Created sig var %v\n", sigs)
 
 	// This line sets up a signal notification system that allows your program to catch and
 	// handle specific signals, such as interruptions and terminations, instead of terminating abruptly.
@@ -123,50 +131,19 @@ func main() {
 	// It registers sigs channel to receive notifications from syscall.SIGINT (Cltr+C), syscall.SIGTERM (kill)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
-	// Starting first go routine to handle signals
-	go func() {
-
-		// Goroutine blocks here, it's waiting to receive signal from the sigs channel.
-		// This goroutine only proceeds when signal is received
-		<-sigs
-
-		// Once the signal is received, it prints "Bye" to indicate program is about to shut down
-		fmt.Println("Bye ..")
-
-		// StopCh is used to signal other parts of program to stop their work & cleanup.
-		// Closing a channel is the best way to broadcast a signal to all goroutines that are waiting on it.
-		close(stopCh)
-
-		// indicates gorutine is finished, decrementing waitroup counter. This ensures that the main function
-		// can wait for all goroutines to finish their cleanup before exiting.
-		wg.Done()
-
-	}() // instantly call the func, don't have to wait for func call
+	wg.Add(1)
+	go handleStopSignal(stopCh, sigs, &wg)
 
 	var yamlConfig Config = parseYamlFile()
 
-	// Currently there is only 1 config
-	// TODO : Bring the entire logic inside this loop
-	// TODO : Should I have go at this for loop level or should I still have separate go funcs
-	// for _, target := range yamlConfig.Targets {
-	// podname := target.Name
-	// namespace := target.Namespace
-	// ports := target.Ports
-	// }
-
-	targets := yamlConfig.Targets
-
-	for _, target := range targets {
+	for _, target := range yamlConfig.Targets {
 
 		// readyCh communicate when the port forward is ready to get traffic
 		readyCh := make(chan struct{})
-		fmt.Printf(" Created ready Channel %v\n", readyCh)
-		configTarget := target
-		podname := configTarget.Target
-		namespace := configTarget.Namespace
-		portsFromConfig := configTarget.Ports
-
-		ports := strings.Split(portsFromConfig[0], ":")
+		//fmt.Printf(" Created ready Channel %v\n", readyCh)
+		podname := target.Target
+		namespace := target.Namespace
+		ports := strings.Split(target.Ports[0], ":")
 		localTargetPort, err := strconv.Atoi(ports[0])
 
 		// TODO : Add error handling for both
@@ -184,30 +161,20 @@ func main() {
 		fmt.Printf("Target localTargetPort: %d\n", localTargetPort)
 		fmt.Printf("Target podPort: %d\n", podPort)
 
-		go func() {
-			fmt.Printf(" Entered PortForwarder goroutine\n")
-			// PortForward the pod specified from its port 8080 to the local port 7070
-			err := PortForwardAPod(PortForwardAPodRequest{
-				RestConfig: kubeConfig,
-				Pod: v1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						// Name:      "hello-minikube-5c898d8489-7mzk5",
-						// Namespace: "default",
-						Name:      podname,
-						Namespace: namespace,
-					},
+		go startPortForwarding(PortForwardAPodRequest{
+			RestConfig: kubeConfig,
+			Pod: v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      podname,
+					Namespace: namespace,
 				},
-				LocalPort: localTargetPort,
-				PodPort:   podPort,
-				Streams:   stream,
-				StopCh:    stopCh,
-				ReadyCh:   readyCh,
-			})
-
-			if err != nil {
-				panic(err)
-			}
-		}()
+			},
+			LocalPort: localTargetPort,
+			PodPort:   podPort,
+			Streams:   stream,
+			StopCh:    stopCh,
+			ReadyCh:   readyCh,
+		}, &wg)
 
 		// Once the port forwarding operation is initiated, the goroutine waits for a
 		// signal indicating that the operation is ready to proceed further.
@@ -215,16 +182,41 @@ func main() {
 		// signals readiness by sending a value (e.g., true) over the readyCh channel.
 		select {
 		case <-readyCh:
-			//fmt.Printf("val in readyCh : %v\n", val)
-			break
+			println("port is ready to get traffic\n")
 		}
-		println("port is ready to get traffic")
-
 	}
 	// The wg.Wait() is used to ensure that all goroutines managed by the sync.WaitGroup
 	// have completed their execution before the main goroutine exits.
 	// Puttinh it at the end of main.
 	wg.Wait()
+}
+
+// Starting first go routine to handle signals
+func handleStopSignal(stopCh chan struct{}, sigs chan os.Signal, wg *sync.WaitGroup) {
+
+	// Goroutine blocks here, it's waiting to receive signal from the sigs channel.
+	// This goroutine only proceeds when signal is received
+	<-sigs
+
+	// Once the signal is received, it prints "Bye" to indicate program is about to shut down
+	fmt.Println("Bye ..")
+
+	// StopCh is used to signal other parts of program to stop their work & cleanup.
+	// Closing a channel is the best way to broadcast a signal to all goroutines that are waiting on it.
+	close(stopCh)
+
+	// indicates gorutine is finished, decrementing waitroup counter. This ensures that the main function
+	// can wait for all goroutines to finish their cleanup before exiting.
+	wg.Done()
+
+}
+
+func startPortForwarding(req PortForwardAPodRequest, wg *sync.WaitGroup) {
+	defer wg.Done()
+	fmt.Printf("Entered PortForwarder goroutine\n")
+	if err := PortForwardAPod(req); err != nil {
+		panic(err)
+	}
 }
 
 /**
@@ -234,20 +226,21 @@ func main() {
  */
 func PortForwardAPod(req PortForwardAPodRequest) error {
 	path := fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward", req.Pod.Namespace, req.Pod.Name)
-	fmt.Println(" Path : " + path)
-	fmt.Println()
+	// fmt.Println(" Path : " + path)
+	// fmt.Println()
 
 	// Minikube creates a local Kubernetes cluster by setting up a VM or container
 	// and installing the necessary Kubernetes components. It configures the Kubernetes API server
 	//to be accessible via localhost using port forwarding. This setup allows you to interact with your local
 	// cluster as if it were running directly on your machine, providing a convenient environment for development and testing.
 	hostIP := strings.TrimLeft(req.RestConfig.Host, "https:/")
-	fmt.Println(" hostIP : " + hostIP)
-	fmt.Println()
+	// fmt.Println(" hostIP : " + hostIP)
+	// fmt.Println()
 
 	transport, upgrader, err := spdy.RoundTripperFor(req.RestConfig)
 	if err != nil {
-		return err
+		// return err
+		panic(err)
 	}
 
 	// New Dialer creates a dialer which connects to the provided URL and upgrades connected to SPDY
@@ -257,7 +250,8 @@ func PortForwardAPod(req PortForwardAPodRequest) error {
 	fw, err := portforward.New(dialer, []string{fmt.Sprintf("%d:%d", req.LocalPort, req.PodPort)}, req.StopCh, req.ReadyCh, req.Streams.Out, req.Streams.ErrOut)
 
 	if err != nil {
-		return err
+		//return err
+		panic(err)
 	}
 
 	// ForwardPorts formats and executes a port forwarding request. The connection will remain
@@ -269,7 +263,8 @@ func parseYamlFile() Config {
 
 	data, err := os.ReadFile("../k8sfwd-example.yaml")
 	if err != nil {
-		log.Fatalf("error: %v", err)
+		//log.Fatalf("error: %v", err)
+		panic(err)
 	}
 
 	// Parse the YAML file into the Config struct
@@ -284,7 +279,8 @@ func parseYamlFile() Config {
 	err = yaml.Unmarshal(data, &config)
 
 	if err != nil {
-		log.Fatalf("error: %v", err)
+		//log.Fatalf("error: %v", err)
+		panic(err)
 	}
 
 	return config
