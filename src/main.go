@@ -5,12 +5,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
@@ -24,11 +22,6 @@ import (
 
 // Define the structure based on the YAML format
 type Config struct {
-	// This is public field as it starts with an uppercase
-	// yaml:"version": This is a struct tag. Struct tags are a way to attach
-	// meta-information to struct fields. The yaml:"version" tag indicates that this
-	// field should be associated with the key version when the struct is serialized to
-	// or deserialized from YAML.
 	Version string `yaml:"version"`
 	Config  struct {
 		RetryDelaySec float64 `yaml:"retry_delay_sec"`
@@ -76,13 +69,9 @@ func main() {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Println("Recovered from panic:", r)
-			// Optionally, perform cleanup or log the panic
 		}
 	}()
 
-	// synchronization primitive used to wait for a collection of goroutines to finish
-	// executing. This is to ensure all parts of a concurrent program have completed
-	// before exiting.
 	var wg sync.WaitGroup
 
 	userHomeDir, err := os.UserHomeDir()
@@ -92,46 +81,44 @@ func main() {
 	}
 	kubeConfigPath := filepath.Join(userHomeDir, ".kube", "config")
 	fmt.Printf("Using kubeconfig: %s\n", kubeConfigPath)
-	// This line constructs a configuration object from the kubeconfig file,
-	// enabling the program to authenticate and interact with the Kubernetes cluster.
+
 	kubeConfig, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
-	// fmt.Printf(" kubeconfig: %s\n", kubeConfig)
 
 	if err != nil {
 		fmt.Printf("error getting Kubernetes config: %v\n", err)
 		os.Exit(1)
 	}
 
-	// stopCh control the port forwarding lifecycle.
-	// When it gets closed the port forward will terminate
-	// This is used to stop the main function from terminating
-	// Till value is received in this channel
+	/** stopCh control the port forwarding lifecycle.
+	 * When it gets closed the port forward will terminate
+	 * This is used to stop the main function from terminating
+	 * Till value is received in this channel
+	 */
 	stopCh := make(chan struct{}, 1)
-	//fmt.Printf(" Created stop Channel %v\n", stopCh)
 
-	// stream is used to tell the port forwarder where to place its output or
-	// where to expect input if needed. For the port forwarding we just need
-	// the output eventually
+	/**
+	 * stream is used to tell the port forwarder where to place its output or
+	 * where to expect input if needed. For the port forwarding we just need
+	 * the output eventually
+	 */
 	stream := genericclioptions.IOStreams{
 		In:     os.Stdin,
 		Out:    os.Stdout,
 		ErrOut: os.Stderr,
 	}
-	//fmt.Printf(" Created stream %v\n", stream)
 
-	// manage termination signal from the terminal. As you can see the stopCh gets closed
-	// to gracefully handle its termination.
-	// Sigs channel is created to receive OS signals.
+	// manage termination signal from the terminal. Sigs channel is created to receive OS signals.
 	sigs := make(chan os.Signal, 1)
-	//fmt.Printf(" Created sig var %v\n", sigs)
 
-	// This line sets up a signal notification system that allows your program to catch and
-	// handle specific signals, such as interruptions and terminations, instead of terminating abruptly.
-	// 'signal.Notify' relays incoming signals from the OS to a Go channel
-	// It registers sigs channel to receive notifications from syscall.SIGINT (Cltr+C), syscall.SIGTERM (kill)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-
+	/**
+	 * This line sets up a signal notification system that allows your program to catch and
+	 * handle specific signals, such as interruptions and terminations, instead of terminating abruptly.
+	 * 'signal.Notify' relays incoming signals from the OS to a Go channel
+	 * It registers sigs channel to receive notifications from syscall.SIGINT (Cltr+C), syscall.SIGTERM (kill)
+	 * signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	 */
 	wg.Add(1)
+
 	go handleStopSignal(stopCh, sigs, &wg)
 
 	var yamlConfig Config = parseYamlFile()
@@ -140,13 +127,11 @@ func main() {
 
 		// readyCh communicate when the port forward is ready to get traffic
 		readyCh := make(chan struct{})
-		//fmt.Printf(" Created ready Channel %v\n", readyCh)
 		podname := target.Target
 		namespace := target.Namespace
 		ports := strings.Split(target.Ports[0], ":")
 		localTargetPort, err := strconv.Atoi(ports[0])
 
-		// TODO : Add error handling for both
 		if err != nil {
 			panic(err)
 		}
@@ -176,18 +161,18 @@ func main() {
 			ReadyCh:   readyCh,
 		}, &wg)
 
-		// Once the port forwarding operation is initiated, the goroutine waits for a
-		// signal indicating that the operation is ready to proceed further.
-		// The PortForwardAPod function, upon successfully setting up the port forwarding,
-		// signals readiness by sending a value (e.g., true) over the readyCh channel.
+		/**
+		 * Once the port forwarding operation is initiated, the goroutine waits for a
+		 * signal indicating that the operation is ready to proceed further.
+		 * The PortForwardAPod function, upon successfully setting up the port forwarding,
+		 * signals readiness by sending a value (e.g., true) over the readyCh channel.
+		 */
 		select {
 		case <-readyCh:
 			println("port is ready to get traffic\n")
 		}
 	}
-	// The wg.Wait() is used to ensure that all goroutines managed by the sync.WaitGroup
-	// have completed their execution before the main goroutine exits.
-	// Puttinh it at the end of main.
+	// Ensures that all the goroutines have completed their execution before the main goroutine exits.
 	wg.Wait()
 }
 
@@ -195,7 +180,6 @@ func main() {
 func handleStopSignal(stopCh chan struct{}, sigs chan os.Signal, wg *sync.WaitGroup) {
 
 	// Goroutine blocks here, it's waiting to receive signal from the sigs channel.
-	// This goroutine only proceeds when signal is received
 	<-sigs
 
 	// Once the signal is received, it prints "Bye" to indicate program is about to shut down
@@ -205,8 +189,6 @@ func handleStopSignal(stopCh chan struct{}, sigs chan os.Signal, wg *sync.WaitGr
 	// Closing a channel is the best way to broadcast a signal to all goroutines that are waiting on it.
 	close(stopCh)
 
-	// indicates gorutine is finished, decrementing waitroup counter. This ensures that the main function
-	// can wait for all goroutines to finish their cleanup before exiting.
 	wg.Done()
 
 }
@@ -226,16 +208,8 @@ func startPortForwarding(req PortForwardAPodRequest, wg *sync.WaitGroup) {
  */
 func PortForwardAPod(req PortForwardAPodRequest) error {
 	path := fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward", req.Pod.Namespace, req.Pod.Name)
-	// fmt.Println(" Path : " + path)
-	// fmt.Println()
 
-	// Minikube creates a local Kubernetes cluster by setting up a VM or container
-	// and installing the necessary Kubernetes components. It configures the Kubernetes API server
-	//to be accessible via localhost using port forwarding. This setup allows you to interact with your local
-	// cluster as if it were running directly on your machine, providing a convenient environment for development and testing.
 	hostIP := strings.TrimLeft(req.RestConfig.Host, "https:/")
-	// fmt.Println(" hostIP : " + hostIP)
-	// fmt.Println()
 
 	transport, upgrader, err := spdy.RoundTripperFor(req.RestConfig)
 	if err != nil {
@@ -254,8 +228,7 @@ func PortForwardAPod(req PortForwardAPodRequest) error {
 		panic(err)
 	}
 
-	// ForwardPorts formats and executes a port forwarding request. The connection will remain
-	// open until stopChan is closed.
+	// ForwardPorts formats and executes a port forwarding request. The connection will remain open until stopChan is closed.
 	return fw.ForwardPorts()
 }
 
@@ -269,13 +242,7 @@ func parseYamlFile() Config {
 
 	// Parse the YAML file into the Config struct
 	var config Config
-	// The yaml.Unmarshal function is used to parse the YAML data and populate the fields of the struct.
-	// The Unmarshal function takes two arguments:
-	// The byte slice containing the YAML data (data).
-	// A pointer to the struct where the parsed data should be stored (&config).
-	// The Unmarshal function signature looks like this:
-	// When you call yaml.Unmarshal(data, &config), the function parses the YAML data in
-	// data and fills the config struct with the corresponding values from the YAML.
+
 	err = yaml.Unmarshal(data, &config)
 
 	if err != nil {
