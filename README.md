@@ -1,4 +1,4 @@
-# k8sfwd
+# k8s-portfwd
 Designing Config-based Kubernetes multi-port forwarding in GoLang
 
 ## Installation
@@ -12,17 +12,20 @@ Install Docker, Kubectl, and Go
 git clone https://github.com/nancynigam/k8s-portfwd.git
 ```
 
-2. Update k8 config file. Specify the details correctly
+2. Update k8s config file. Specify the details correctly. A sample config file
+k8s-portfwd-config is provided for reference.
 
-3. Build 
+3. Update the name/path of config file in main inside parseYamlFile function.
+
+4. Build 
 ```
 go build
 ```
-4. Run the executable
+5. Run the executable
 ```
-./k8sfwd
+./k8s-portfwd
 ```
-5. Porwarding for all the configs mentioned in the config file will start. To stop portforwarding, use ctrl + c and it'll terminate all the port forwarding
+6. Porwarding for all the configs mentioned in the config file will start. To stop portforwarding, use ctrl + c and it'll terminate all the port forwarding
 ```
 Eg : ports in the config file => "7080:8080"
 This implies to forward port from 8080 to localhost://7080 

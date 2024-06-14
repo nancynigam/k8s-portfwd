@@ -182,8 +182,8 @@ func handleStopSignal(stopCh chan struct{}, sigs chan os.Signal, wg *sync.WaitGr
 	// Goroutine blocks here, it's waiting to receive signal from the sigs channel.
 	<-sigs
 
-	// Once the signal is received, it prints "Bye" to indicate program is about to shut down
-	fmt.Println("Bye ..")
+	// Once the signal is received, it prints the following message to indicate program is about to shut down
+	fmt.Println("Connection interrupted ..")
 
 	// StopCh is used to signal other parts of program to stop their work & cleanup.
 	// Closing a channel is the best way to broadcast a signal to all goroutines that are waiting on it.
@@ -234,7 +234,7 @@ func PortForwardAPod(req PortForwardAPodRequest) error {
 
 func parseYamlFile() Config {
 
-	data, err := os.ReadFile("../k8sfwd-example.yaml")
+	data, err := os.ReadFile("../k8s-portfwd-config.yaml")
 	if err != nil {
 		//log.Fatalf("error: %v", err)
 		panic(err)

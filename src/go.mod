@@ -1,4 +1,4 @@
-module github.com/nancynigam/k8sfwd
+module github.com/nancynigam/k8s-portfwd
 
 go 1.22.3
 
