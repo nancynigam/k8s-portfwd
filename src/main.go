@@ -89,6 +89,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: ./executable filename.txt")
+		os.Exit(1)
+	}
+
+	pathToFile := os.Args[1]
+
 	/** stopCh control the port forwarding lifecycle.
 	 * When it gets closed the port forward will terminate
 	 * This is used to stop the main function from terminating
@@ -121,7 +128,7 @@ func main() {
 
 	go handleStopSignal(stopCh, sigs, &wg)
 
-	var yamlConfig Config = parseYamlFile()
+	var yamlConfig Config = parseYamlFile(pathToFile)
 
 	for _, target := range yamlConfig.Targets {
 
@@ -232,9 +239,9 @@ func PortForwardAPod(req PortForwardAPodRequest) error {
 	return fw.ForwardPorts()
 }
 
-func parseYamlFile() Config {
+func parseYamlFile(pathToFile string) Config {
 
-	data, err := os.ReadFile("../k8s-portfwd-config.yaml")
+	data, err := os.ReadFile(pathToFile)
 	if err != nil {
 		//log.Fatalf("error: %v", err)
 		panic(err)
