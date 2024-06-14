@@ -1,5 +1,5 @@
 # k8s-portfwd
-A GoLang-based tool for multi-port forwarding in Kubernetes using a configuration file.
+Config-driven, multi-port forwarding in Kubernetes.
 
 ## Prerequisites
 - Docker
@@ -14,8 +14,7 @@ cd k8s-portfwd
 ```
 
 2. Update the Kubernetes Config File
-- Edit the configuration file k8s-portfwd-config to specify your port forwarding details.
-- Ensure the path to your config file is correctly referenced in the main function within parseYamlFile.
+- Create a configuration file `k8s-portfwd-config.yaml` to specify port forwarding details.
 
 3. Build the project
 ```
@@ -23,7 +22,7 @@ go build
 ```
 4. Run the executable
 ```
-./k8s-portfwd
+./k8s-portfwd <path-to-config>
 ```
 
 ## Usage
@@ -39,7 +38,7 @@ ports:
 This configuration will forward traffic from port 8080 on your Kubernetes cluster to port 7080 on your localhost.
 
 ## Sample Configuration
-Refer to the provided k8s-portfwd-config file for a sample configuration.
+Refer to the provided `k8s-portfwd-config.yaml` file for a sample configuration.
 
 ## License
 MIT License
