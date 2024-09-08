@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,6 +18,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
 )
@@ -35,6 +38,7 @@ type Target struct {
 	Target      string   `yaml:"target"`
 	Type        string   `yaml:"type"`
 	Namespace   string   `yaml:"namespace"`
+	Cluster     string   `yaml:"cluster"`
 	ListenAddrs []string `yaml:"listen_addrs,omitempty"`
 	Ports       []string `yaml:"ports"`
 }
@@ -82,17 +86,7 @@ func main() {
 	kubeConfigPath := filepath.Join(userHomeDir, ".kube", "config")
 	fmt.Printf("Using kubeconfig: %s\n", kubeConfigPath)
 
-	kubeConfig, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
-
-	if err != nil {
-		fmt.Printf("error getting Kubernetes config: %v\n", err)
-		os.Exit(1)
-	}
-
-	if len(os.Args) < 2 {
-		fmt.Println("Usage: ./executable filename.txt")
-		os.Exit(1)
-	}
+	//kubeConfig, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
 
 	pathToFile := os.Args[1]
 
@@ -136,6 +130,7 @@ func main() {
 		readyCh := make(chan struct{})
 		podname := target.Target
 		namespace := target.Namespace
+		cluster := target.Cluster
 		ports := strings.Split(target.Ports[0], ":")
 		localTargetPort, err := strconv.Atoi(ports[0])
 
@@ -148,6 +143,42 @@ func main() {
 			panic(err)
 		}
 
+		// Update the current context to config cluster
+		if cluster != "" {
+
+			config, err := loadKubeConfig(kubeConfigPath)
+			if err != nil {
+				log.Fatalf("Failed to load kubeconfig: %v", err)
+			}
+
+			err = updateCurrentContext(config, cluster)
+			if err != nil {
+				log.Fatalf("Failed to update current context: %v", err)
+			}
+
+			// Save the updated kubeconfig back to the file
+			err = saveKubeConfig(kubeConfigPath, config)
+			if err != nil {
+				log.Fatalf("Failed to save updated kubeconfig: %v", err)
+			}
+
+			fmt.Printf("Successfully updated the current context to %s\n", cluster)
+
+		}
+
+		kubeConfig, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
+
+		if err != nil {
+			fmt.Printf("error getting Kubernetes config: %v\n", err)
+			os.Exit(1)
+		}
+
+		if len(os.Args) < 2 {
+			fmt.Println("Usage: ./executable filename.txt")
+			os.Exit(1)
+		}
+
+		fmt.Printf("Target cluster: %s\n", cluster)
 		fmt.Printf("Target podname: %s\n", podname)
 		fmt.Printf("Target namespace: %s\n", namespace)
 		fmt.Printf("Target localTargetPort: %d\n", localTargetPort)
@@ -258,4 +289,50 @@ func parseYamlFile(pathToFile string) Config {
 	}
 
 	return config
+}
+
+// updateCurrentContext updates the current context in the kubeconfig
+func updateCurrentContext(config *api.Config, newContext string) error {
+	// Check if the new context exists in the kubeconfig
+	if _, exists := config.Contexts[newContext]; !exists {
+		return fmt.Errorf("context %s not found in kubeconfig", newContext)
+	}
+
+	// Update the current context
+	config.CurrentContext = newContext
+	return nil
+}
+
+// saveKubeConfig writes the updated kubeconfig back to the specified file
+func saveKubeConfig(kubeconfigPath string, config *api.Config) error {
+	// Serialize the updated config
+	configBytes, err := clientcmd.Write(*config)
+	if err != nil {
+		return fmt.Errorf("failed to serialize updated kubeconfig: %v", err)
+	}
+
+	// Write the updated config to the file
+	err = os.WriteFile(kubeconfigPath, configBytes, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write updated kubeconfig: %v", err)
+	}
+
+	return nil
+}
+
+// loadKubeConfig loads the kubeconfig from the specified path
+func loadKubeConfig(kubeconfigPath string) (*api.Config, error) {
+	// Read the kubeconfig file
+	kubeconfigBytes, err := ioutil.ReadFile(kubeconfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read kubeconfig: %v", err)
+	}
+
+	// Load the kubeconfig into a Config object
+	config, err := clientcmd.Load(kubeconfigBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load kubeconfig: %v", err)
+	}
+
+	return config, nil
 }
